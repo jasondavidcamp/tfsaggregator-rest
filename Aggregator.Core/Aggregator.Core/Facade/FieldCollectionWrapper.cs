@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -7,19 +7,18 @@ using System.Linq;
 using Aggregator.Core.Context;
 using Aggregator.Core.Extensions;
 using Aggregator.Core.Interfaces;
-using Aggregator.Core.Monitoring;
-using Microsoft.TeamFoundation.WorkItemTracking.Client;
 
 namespace Aggregator.Core.Facade
 {
     public class FieldCollectionWrapper : IFieldCollection
     {
-        private readonly FieldCollection fields;
+        private readonly WorkItemWrapper owner;
+
         private readonly IRuntimeContext context;
 
-        public FieldCollectionWrapper(FieldCollection fieldCollection, IRuntimeContext context)
+        public FieldCollectionWrapper(WorkItemWrapper owner, IRuntimeContext context)
         {
-            this.fields = fieldCollection;
+            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
             this.context = context;
         }
 
@@ -28,7 +27,7 @@ namespace Aggregator.Core.Facade
         {
             get
             {
-                return this.ApplyDoubleFix(this.fields[name]);
+                return this.ApplyDoubleFix(this.owner.GetOrCreateField(name));
             }
 
             [EditorBrowsable(EditorBrowsableState.Never)]
@@ -40,7 +39,11 @@ namespace Aggregator.Core.Facade
 
         public IEnumerator<IField> GetEnumerator()
         {
-            return this.fields.Cast<Field>().Select(this.ApplyDoubleFix).GetEnumerator();
+            return this.owner
+                .GetFields()
+                .OrderBy(field => field.ReferenceName, StringComparer.OrdinalIgnoreCase)
+                .Select(this.ApplyDoubleFix)
+                .GetEnumerator();
         }
 
         IEnumerator IEnumerable.GetEnumerator()
@@ -48,12 +51,12 @@ namespace Aggregator.Core.Facade
             return this.GetEnumerator();
         }
 
-        private IField ApplyDoubleFix(Field field)
+        private IField ApplyDoubleFix(WorkItemFieldState field)
         {
-            IFieldExposed wrappedField = new FieldWrapper(field, this.context);
+            IFieldExposed wrappedField = new FieldWrapper(field, this.owner);
             wrappedField = new DoubleFixFieldDecorator(wrappedField, this.context);
 
-            if (this.context.Settings.Debug)
+            if (this.context.Settings?.Debug == true)
             {
                 wrappedField = new FieldValueValidationDecorator(wrappedField, this.context);
             }

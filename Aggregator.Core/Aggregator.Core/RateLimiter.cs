@@ -1,12 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System;
 
 using Aggregator.Core.Context;
-
-using Microsoft.TeamFoundation.WorkItemTracking.Client;
+using Aggregator.Core.Interfaces;
 
 namespace Aggregator.Core
 {
@@ -28,51 +23,30 @@ namespace Aggregator.Core
             }
         }
 
-        public bool ShouldLimit(WorkItem wi)
+        public bool ShouldLimit(IWorkItem wi)
         {
-            if (!this.enabled)
+            if (!this.enabled || wi == null || !wi.IsDirty)
             {
                 return false;
             }
 
-            if (wi.IsNew)
+            try
             {
-                return false;
-            }
-
-            if (!wi.IsDirty)
-            {
-                return false;
-            }
-
-            DateTime watermark = DateTime.UtcNow;
-            DateTime previousChangedDate = ((DateTime)wi.Fields[CoreField.ChangedDate].OriginalValue).ToUniversalTime();
-
-            bool isRecentChange = watermark - previousChangedDate < this.interval;
-
-            return isRecentChange && this.ThereAreMoreRevisionsInPeriod(wi, watermark);
-        }
-
-        private bool ThereAreMoreRevisionsInPeriod(WorkItem wi, DateTime watermark)
-        {
-            int inSpan = 0;
-            for (int i = wi.Revisions.Count - 1; i > 0; i--)
-            {
-                var changedDate = (DateTime)wi.Revisions[i].Fields[CoreField.ChangedDate].Value;
-                if (watermark - changedDate.ToUniversalTime() < this.interval)
+                if (!(wi.Fields["System.ChangedDate"].OriginalValue is DateTime previousChangedDate))
                 {
-                    if (++inSpan > this.changes)
-                    {
-                        return true;
-                    }
+                    return false;
                 }
-                else
-                {
-                    break;
-                }
-            }
 
-            return false;
+                DateTime watermark = DateTime.UtcNow;
+                bool isRecentChange = watermark - previousChangedDate.ToUniversalTime() < this.interval;
+
+                // The REST-backed implementation intentionally does not load full revision history.
+                return isRecentChange && wi.Revision > this.changes + 1;
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

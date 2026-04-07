@@ -1,14 +1,15 @@
 using System;
 using System.Net.Mail;
+
 using Aggregator.Core.Configuration;
 using Aggregator.Core.Context;
 using Aggregator.Core.Interfaces;
 using Aggregator.Core.Monitoring;
+
 using Microsoft.TeamFoundation.Client;
 using Microsoft.TeamFoundation.Framework.Client;
 using Microsoft.TeamFoundation.Framework.Common;
 using Microsoft.TeamFoundation.Framework.Server;
-using Microsoft.TeamFoundation.WorkItemTracking.Client;
 #if TFS2015u1
 using IVssRequestContext = Microsoft.TeamFoundation.Framework.Server.IVssRequestContext;
 #else
@@ -28,10 +29,12 @@ namespace Aggregator.Core.Facade
 {
     public class ScriptLibrary : IScriptLibrary
     {
-
         private readonly ILogEvents logger;
+
         private readonly IRequestContext requestContext;
+
         private readonly ConnectionInfo connectionInfo;
+
         private readonly Mailer mailer;
 
         public ScriptLibrary(IRuntimeContext context)
@@ -80,7 +83,7 @@ namespace Aggregator.Core.Facade
                         }
                     }
                 }
-                catch (System.Exception ex)
+                catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"SendMail failed: {ex.Message}");
                 }
@@ -116,7 +119,7 @@ namespace Aggregator.Core.Facade
             {
                 this.mailer.Send(to, subject, body);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SendMail failed: {ex.Message}");
             }
@@ -131,19 +134,6 @@ namespace Aggregator.Core.Facade
             {
                 Func<string, string>[] helpers =
                 {
-#if !TFS2013
-                    (lookup) =>
-                    {
-                        string email = null;
-                        var workItemStore = teamProjectCollection.GetService<WorkItemStore>();
-                        if (workItemStore.TryFindIdentity(lookup, out var identity))
-                        {
-                            email = identity?.Email ?? string.Empty;
-                        }
-
-                        return email;
-                    },
-#endif
                     (lookup) =>
                     {
                         var identityManagementService = teamProjectCollection.GetService<IIdentityManagementService>();
@@ -154,18 +144,7 @@ namespace Aggregator.Core.Facade
                             MembershipQuery.None,
                             ReadIdentityOptions.ExtendedProperties);
 
-                        if (identity == null)
-                        {
-                            return string.Empty;
-                        }
-                        else
-                        {
-                            string mailAddress = identity.GetAttribute("Mail", null);
-                            mailAddress = string.IsNullOrWhiteSpace(mailAddress)
-                                ? identity.GetAttribute("ConfirmedNotificationAddress", null)
-                                : mailAddress;
-                            return mailAddress;
-                        }
+                        return GetNotificationAddress(identity);
                     },
                     (lookup) =>
                     {
@@ -177,18 +156,7 @@ namespace Aggregator.Core.Facade
                             MembershipQuery.None,
                             ReadIdentityOptions.ExtendedProperties);
 
-                        if (identity == null)
-                        {
-                            return string.Empty;
-                        }
-                        else
-                        {
-                            string mailAddress = identity.GetAttribute("Mail", null);
-                            mailAddress = string.IsNullOrWhiteSpace(mailAddress)
-                                ? identity.GetAttribute("ConfirmedNotificationAddress", null)
-                                : mailAddress;
-                            return mailAddress;
-                        }
+                        return GetNotificationAddress(identity);
                     }
                 };
 
@@ -202,11 +170,26 @@ namespace Aggregator.Core.Facade
                             return result;
                         }
                     }
-                    catch {}
+                    catch
+                    {
+                    }
                 }
 
                 return defaultValue;
             }
+        }
+
+        private static string GetNotificationAddress(TeamFoundationIdentity identity)
+        {
+            if (identity == null)
+            {
+                return string.Empty;
+            }
+
+            string mailAddress = identity.GetAttribute("Mail", null);
+            return string.IsNullOrWhiteSpace(mailAddress)
+                ? identity.GetAttribute("ConfirmedNotificationAddress", null)
+                : mailAddress;
         }
     }
 }

@@ -18,7 +18,7 @@ namespace Aggregator.Core.Extensions
         {
             if (field.ReferenceName.Equals("System.History", StringComparison.OrdinalIgnoreCase))
             {
-                this.Logger.FieldValidationFailedAssignmentToHistory(field.WorkItem.Id);
+                this.Logger.FieldValidationFailedAssignmentToHistory(0);
 
                 return false;
             }

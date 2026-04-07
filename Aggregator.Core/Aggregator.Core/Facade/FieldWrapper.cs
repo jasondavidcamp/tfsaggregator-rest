@@ -1,74 +1,46 @@
-﻿using System;
+using System;
 
-using Aggregator.Core.Context;
 using Aggregator.Core.Interfaces;
 
 using Microsoft.TeamFoundation.WorkItemTracking.Client;
 
 namespace Aggregator.Core.Facade
 {
-    public class FieldWrapper : IFieldExposed
+    internal class FieldWrapper : IFieldExposed
     {
-        private readonly Field tfsField;
+        private readonly WorkItemFieldState field;
 
-        public FieldWrapper(Field field, IRuntimeContext context)
+        private readonly WorkItemWrapper owner;
+
+        public FieldWrapper(WorkItemFieldState field, WorkItemWrapper owner)
         {
-            this.tfsField = field;
+            this.field = field ?? throw new ArgumentNullException(nameof(field));
+            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
         }
 
-        public string Name
-        {
-            get
-            {
-                return this.tfsField.Name;
-            }
-        }
+        public string Name => this.field.Name;
 
-        public string ReferenceName
-        {
-            get
-            {
-                return this.tfsField.ReferenceName;
-            }
-        }
+        public string ReferenceName => this.field.ReferenceName;
 
         public object Value
         {
             get
             {
-                return this.tfsField.Value;
+                return this.field.CurrentValue;
             }
 
             set
             {
-                this.tfsField.Value = value;
+                this.owner.SetFieldValue(this.field.ReferenceName, value);
             }
         }
 
-        public Field TfsField
-        {
-            get
-            {
-                return this.tfsField;
-            }
-        }
+        public Field TfsField => null;
 
-        public FieldStatus Status
-        {
-            get { return this.tfsField.Status; }
-        }
+        public FieldStatus Status => this.field.Status;
 
-        public object OriginalValue
-        {
-            get { return this.tfsField.OriginalValue; }
-        }
+        public object OriginalValue => this.field.OriginalValue;
 
-        public Type DataType
-        {
-            get
-            {
-                return this.tfsField.FieldDefinition.SystemType;
-            }
-        }
+        public Type DataType => this.field.DataType;
     }
 }

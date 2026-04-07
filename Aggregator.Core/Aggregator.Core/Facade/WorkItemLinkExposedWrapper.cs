@@ -1,22 +1,21 @@
-﻿using System;
 using Aggregator.Core.Context;
 using Aggregator.Core.Interfaces;
-using Microsoft.TeamFoundation.WorkItemTracking.Client;
 
 namespace Aggregator.Core.Facade
 {
     internal class WorkItemLinkExposedWrapper : IWorkItemLinkExposed
     {
-        private readonly WorkItemLink item;
+        private readonly RestWorkItemRelation item;
+
         private readonly IRuntimeContext context;
 
-        public WorkItemLinkExposedWrapper(WorkItemLink item, IRuntimeContext context)
+        public WorkItemLinkExposedWrapper(RestWorkItemRelation item, IRuntimeContext context)
         {
             this.item = item;
             this.context = context;
         }
 
-        public string LinkTypeEndImmutableName => this.item.LinkTypeEnd.ImmutableName;
+        public string LinkTypeEndImmutableName => this.item.LinkTypeEndImmutableName;
 
         public int TargetId => this.item.TargetId;
 

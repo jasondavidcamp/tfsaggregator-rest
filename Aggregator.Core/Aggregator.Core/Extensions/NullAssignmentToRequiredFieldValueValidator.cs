@@ -15,7 +15,7 @@ namespace Aggregator.Core.Extensions
         {
             if (value == null && field.IsRequired)
             {
-                this.Logger.FieldValidationFailedFieldRequired(field.WorkItem.Id, field.ReferenceName);
+                this.Logger.FieldValidationFailedFieldRequired(0, field.ReferenceName);
 
                 return false;
             }

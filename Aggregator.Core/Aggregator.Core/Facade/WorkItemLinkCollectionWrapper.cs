@@ -1,48 +1,28 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 
 using Aggregator.Core.Context;
 using Aggregator.Core.Interfaces;
-using Aggregator.Core.Monitoring;
-
-using Microsoft.TeamFoundation.WorkItemTracking.Client;
 
 namespace Aggregator.Core.Facade
 {
     internal class WorkItemLinkCollectionWrapper : IWorkItemLinkCollection
     {
-        private readonly ILogEvents logger;
-
-        private readonly IWorkItemRepository store;
+        private readonly IEnumerable<RestWorkItemRelation> workItemLinkCollection;
 
         private readonly IRuntimeContext context;
 
-        private readonly IEnumerable<WorkItemLink> workItemLinkCollection;
-
-        public WorkItemLinkCollectionWrapper(WorkItemLinkCollection workItemLinkCollection, IRuntimeContext context) 
-            : this(context)
+        public WorkItemLinkCollectionWrapper(IEnumerable<RestWorkItemRelation> workItemLinkCollection, IRuntimeContext context)
         {
-            this.workItemLinkCollection = workItemLinkCollection.Cast<WorkItemLink>();
-        }
-
-        public WorkItemLinkCollectionWrapper(LinkCollection linkCollection, IRuntimeContext context)
-            : this(context)
-        {
-            this.workItemLinkCollection = linkCollection.OfType<WorkItemLink>();
-        }
-
-        private WorkItemLinkCollectionWrapper(IRuntimeContext context)
-        {
-            this.logger = context.Logger;
-            this.store = context.WorkItemRepository;
+            this.workItemLinkCollection = workItemLinkCollection ?? Enumerable.Empty<RestWorkItemRelation>();
             this.context = context;
         }
 
         public IEnumerator<IWorkItemLink> GetEnumerator()
         {
-            foreach (WorkItemLink item in this.workItemLinkCollection.Cast<WorkItemLink>())
+            foreach (RestWorkItemRelation item in this.workItemLinkCollection)
             {
                 yield return new WorkItemLinkWrapper(item, this.context);
             }
@@ -60,8 +40,9 @@ namespace Aggregator.Core.Facade
 
         public bool Contains(IWorkItemLink link)
         {
-            WorkItemLink item = ((WorkItemLinkWrapper)link).WorkItemLink;
-            return this.workItemLinkCollection.Contains(item);
+            return this.workItemLinkCollection.Any(item =>
+                string.Equals(item.LinkTypeEndImmutableName, link.LinkTypeEndImmutableName, StringComparison.OrdinalIgnoreCase)
+                && item.TargetId == link.TargetId);
         }
     }
 }

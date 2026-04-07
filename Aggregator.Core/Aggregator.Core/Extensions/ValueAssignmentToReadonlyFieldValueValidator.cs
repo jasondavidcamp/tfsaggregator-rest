@@ -15,7 +15,7 @@ namespace Aggregator.Core.Extensions
         {
             if (value != null && !field.IsEditable)
             {
-                this.Logger.FieldValidationFailedFieldNotEditable(field.WorkItem.Id, field.ReferenceName, value);
+                this.Logger.FieldValidationFailedFieldNotEditable(0, field.ReferenceName, value);
 
                 return false;
             }

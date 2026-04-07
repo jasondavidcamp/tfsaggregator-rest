@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 using Aggregator.Core.Context;
@@ -29,21 +29,9 @@ namespace Aggregator.Core.Extensions
             };
         }
 
-        public string Name
-        {
-            get
-            {
-                return this.decoratedField.Name;
-            }
-        }
+        public string Name => this.decoratedField.Name;
 
-        public string ReferenceName
-        {
-            get
-            {
-                return this.decoratedField.ReferenceName;
-            }
-        }
+        public string ReferenceName => this.decoratedField.ReferenceName;
 
         public object Value
         {
@@ -54,47 +42,24 @@ namespace Aggregator.Core.Extensions
 
             set
             {
-                bool valid = true;
-
-                foreach (var validator in this.validators)
+                if (this.decoratedField.TfsField != null)
                 {
-                    valid &= validator.ValidateFieldValue(this.decoratedField.TfsField, value);
+                    foreach (var validator in this.validators)
+                    {
+                        validator.ValidateFieldValue(this.decoratedField.TfsField, value);
+                    }
                 }
 
                 this.decoratedField.Value = value;
             }
         }
 
-        public FieldStatus Status
-        {
-            get
-            {
-                return this.decoratedField.Status;
-            }
-        }
+        public FieldStatus Status => this.decoratedField.Status;
 
-        public object OriginalValue
-        {
-            get
-            {
-                return this.decoratedField.OriginalValue;
-            }
-        }
+        public object OriginalValue => this.decoratedField.OriginalValue;
 
-        public Type DataType
-        {
-            get
-            {
-                return this.decoratedField.DataType;
-            }
-        }
+        public Type DataType => this.decoratedField.DataType;
 
-        public Field TfsField
-        {
-            get
-            {
-                return this.decoratedField.TfsField;
-            }
-        }
+        public Field TfsField => this.decoratedField.TfsField;
     }
 }

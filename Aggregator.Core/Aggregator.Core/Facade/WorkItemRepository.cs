@@ -1,27 +1,30 @@
-﻿using System;
-using System.Collections;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
 using System.Xml;
 
+using Aggregator.Core.Configuration;
 using Aggregator.Core.Context;
 using Aggregator.Core.Interfaces;
 using Aggregator.Core.Monitoring;
 
-using Microsoft.TeamFoundation.Client;
-using Microsoft.TeamFoundation.WorkItemTracking.Client;
-
-using IdentityDescriptor = Microsoft.TeamFoundation.Framework.Client.IdentityDescriptor;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Aggregator.Core.Facade
 {
     /// <summary>
-    /// Singleton used to access TFS Data.  This keeps us from connecting each and every time we get an update.
-    /// Keeps track of all WorkItems pulled in memory that should be saved later.
+    /// Singleton used to access Azure DevOps work item data over REST. This keeps us from connecting
+    /// each and every time we get an update. Keeps track of all WorkItems pulled in memory that should be saved later.
     /// </summary>
     public partial class WorkItemRepository : IWorkItemRepository, IDisposable
     {
+        private const string WorkItemApiVersion = "7.0";
+
         private readonly ILogEvents logger;
 
         private readonly IRuntimeContext context;
@@ -30,96 +33,55 @@ namespace Aggregator.Core.Facade
 
         private readonly List<IWorkItem> createdWorkItems = new List<IWorkItem>();
 
-        private readonly WorkItemStore workItemStore;
+        private readonly HttpClient httpClient;
 
-        private readonly TfsTeamProjectCollection tfs;
+        private readonly Uri projectCollectionUri;
 
         public WorkItemRepository(IRuntimeContext context)
         {
             this.logger = context.Logger;
             this.context = context;
-            var ci = context.GetConnectionInfo();
-            this.logger.Connecting(ci);
-            this.tfs = ci.Token.GetCollection(ci.ProjectCollectionUri);
-            this.tfs.Authenticate();
-            this.workItemStore = this.tfs.GetService<WorkItemStore>();
+
+            var connectionInfo = context.GetConnectionInfo();
+            this.logger.Connecting(connectionInfo);
+
+            this.projectCollectionUri = EnsureTrailingSlash(connectionInfo.ProjectCollectionUri);
+            this.httpClient = CreateHttpClient(connectionInfo);
         }
 
         public IWorkItem GetWorkItem(int workItemId)
         {
-            IWorkItem result;
-            if (!this.loadedWorkItems.TryGetValue(workItemId, out result))
+            if (!this.loadedWorkItems.TryGetValue(workItemId, out var result))
             {
-                result = new WorkItemWrapper(this.workItemStore.GetWorkItem(workItemId), this.context);
+                result = new WorkItemWrapper(this.LoadWorkItem(workItemId), this.context, this);
                 this.loadedWorkItems.Add(workItemId, result);
             }
 
             return result;
         }
 
-        public ReadOnlyCollection<IWorkItem> LoadedWorkItems
-        {
-            get
-            {
-                return new ReadOnlyCollection<IWorkItem>(this.loadedWorkItems.Values.ToList());
-            }
-        }
+        public ReadOnlyCollection<IWorkItem> LoadedWorkItems => new ReadOnlyCollection<IWorkItem>(this.loadedWorkItems.Values.ToList());
 
-        public ReadOnlyCollection<IWorkItem> CreatedWorkItems
-        {
-            get
-            {
-                return new ReadOnlyCollection<IWorkItem>(this.createdWorkItems);
-            }
-        }
+        public ReadOnlyCollection<IWorkItem> CreatedWorkItems => new ReadOnlyCollection<IWorkItem>(this.createdWorkItems);
 
         public IWorkItem MakeNewWorkItem(string projectName, string workItemTypeName)
         {
-            if (string.IsNullOrWhiteSpace(projectName))
-            {
-                throw new ArgumentNullException(nameof(projectName));
-            }
-
-            if (string.IsNullOrWhiteSpace(workItemTypeName))
-            {
-                throw new ArgumentNullException(nameof(workItemTypeName));
-            }
-
-            var targetType = this.workItemStore.Projects[projectName].WorkItemTypes[workItemTypeName];
-            var target = new WorkItem(targetType);
-
-            IWorkItem justCreated = new WorkItemWrapper(target, this.context);
-            this.createdWorkItems.Add(justCreated);
-            return justCreated;
+            throw new NotSupportedException("Creating work items is outside the supported REST migration scope.");
         }
 
         public IWorkItem MakeNewWorkItem(IWorkItem inSameProjectAs, string workItemTypeName)
         {
-            if (inSameProjectAs == null)
-            {
-                throw new ArgumentNullException(nameof(inSameProjectAs));
-            }
-
-            return this.MakeNewWorkItem((string)inSameProjectAs[CoreFieldReferenceNames.TeamProject], workItemTypeName);
+            throw new NotSupportedException("Creating work items is outside the supported REST migration scope.");
         }
 
         public IWorkItem MakeNewWorkItem(IWorkItemExposed inSameProjectAs, string workItemTypeName)
         {
-            return this.MakeNewWorkItem((IWorkItem)inSameProjectAs, workItemTypeName);
+            throw new NotSupportedException("Creating work items is outside the supported REST migration scope.");
         }
 
         public IEnumerable<string> GetGlobalList(string globalListName)
         {
-            this.logger.ReadingGlobalList(this.workItemStore.TeamProjectCollection.Name, globalListName);
-
-            if (string.IsNullOrWhiteSpace(globalListName))
-            {
-                throw new ArgumentNullException(nameof(globalListName));
-            }
-
-            // get Global Lists from TFS collection
-            var globalListsDoc = this.workItemStore.ExportGlobalLists();
-            return ParseGlobalList(globalListsDoc, globalListName);
+            throw new NotSupportedException("Global lists are not supported by the REST-backed repository.");
         }
 
         // HACK public to allow Unit Testing
@@ -139,49 +101,12 @@ namespace Aggregator.Core.Facade
 
         public void AddItemToGlobalList(string globalListName, string item)
         {
-            this.logger.AddingToGlobalList(this.workItemStore.TeamProjectCollection.Name, globalListName, item);
-
-            if (string.IsNullOrWhiteSpace(globalListName))
-            {
-                throw new ArgumentNullException(nameof(globalListName));
-            }
-            if (string.IsNullOrWhiteSpace(item))
-            {
-                throw new ArgumentNullException(nameof(item));
-            }
-
-            var globalListsDoc = this.workItemStore.ExportGlobalLists();
-
-            bool anyChange = EditGlobalList(globalListsDoc, globalListName, item, EditAction.Add);
-
-            if (anyChange)
-            {
-                this.workItemStore.ImportGlobalLists(globalListsDoc.DocumentElement);
-            }
+            throw new NotSupportedException("Global lists are not supported by the REST-backed repository.");
         }
 
         public void RemoveItemFromGlobalList(string globalListName, string item)
         {
-            this.logger.RemovingFromGlobalList(this.workItemStore.TeamProjectCollection.Name, globalListName, item);
-
-
-            if (string.IsNullOrWhiteSpace(globalListName))
-            {
-                throw new ArgumentNullException(nameof(globalListName));
-            }
-            if (string.IsNullOrWhiteSpace(item))
-            {
-                throw new ArgumentNullException(nameof(item));
-            }
-
-            var globalListsDoc = this.workItemStore.ExportGlobalLists();
-
-            bool anyChange = EditGlobalList(globalListsDoc, globalListName, item, EditAction.Remove);
-
-            if (anyChange)
-            {
-                this.workItemStore.ImportGlobalLists(globalListsDoc.DocumentElement);
-            }
+            throw new NotSupportedException("Global lists are not supported by the REST-backed repository.");
         }
 
         // HACK public to allow Unit Testing
@@ -243,8 +168,243 @@ namespace Aggregator.Core.Facade
         {
             if (disposing)
             {
-                this.tfs?.Dispose();
+                this.httpClient?.Dispose();
             }
+        }
+
+        internal void SaveWorkItem(WorkItemWrapper workItem)
+        {
+            if (workItem == null)
+            {
+                throw new ArgumentNullException(nameof(workItem));
+            }
+
+            var dirtyFields = workItem.GetDirtyFieldValues();
+            if (dirtyFields.Count == 0)
+            {
+                return;
+            }
+
+            var operations = new List<object>
+            {
+                new { op = "test", path = "/rev", value = workItem.Revision }
+            };
+
+            operations.AddRange(dirtyFields.Select(field => new
+            {
+                op = "add",
+                path = "/fields/" + EscapeJsonPointer(field.Key),
+                value = field.Value
+            }));
+
+            using (var request = new HttpRequestMessage(new HttpMethod("PATCH"), this.BuildWorkItemUri(workItem.Id)))
+            {
+                request.Content = new StringContent(
+                    JsonConvert.SerializeObject(operations),
+                    Encoding.UTF8,
+                    "application/json-patch+json");
+
+                var savedWorkItem = this.SendAndParse(request);
+                workItem.RefreshFromData(savedWorkItem);
+            }
+        }
+
+        private RestWorkItemData LoadWorkItem(int workItemId)
+        {
+            using (var request = new HttpRequestMessage(HttpMethod.Get, this.BuildWorkItemUri(workItemId)))
+            {
+                return this.SendAndParse(request);
+            }
+        }
+
+        private RestWorkItemData SendAndParse(HttpRequestMessage request)
+        {
+            using (var response = this.httpClient.SendAsync(request).GetAwaiter().GetResult())
+            {
+                string payload = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new InvalidOperationException(
+                        $"Azure DevOps REST call to '{request.RequestUri}' failed with {(int)response.StatusCode} {response.ReasonPhrase}: {payload}");
+                }
+
+                return this.ParseWorkItem(JObject.Parse(payload));
+            }
+        }
+
+        private RestWorkItemData ParseWorkItem(JObject payload)
+        {
+            int id = payload.Value<int>("id");
+            var data = new RestWorkItemData
+            {
+                Id = id,
+                Revision = payload.Value<int?>("rev") ?? 0,
+                Uri = this.ParseWorkItemUri(payload.Value<string>("url"), id)
+            };
+
+            JObject fieldObject = payload["fields"] as JObject;
+            if (fieldObject != null)
+            {
+                foreach (var field in fieldObject.Properties())
+                {
+                    data.Fields[field.Name] = ParseFieldValue(field.Value);
+                }
+            }
+
+            data.TypeName = data.Fields.TryGetValue("System.WorkItemType", out var typeName)
+                ? Convert.ToString(typeName)
+                : string.Empty;
+
+            if (data.Fields.TryGetValue("System.ChangedDate", out var revisedDate) && revisedDate is DateTime changedDate)
+            {
+                data.RevisedDate = changedDate;
+            }
+
+            JArray relations = payload["relations"] as JArray;
+            if (relations != null)
+            {
+                foreach (JObject relation in relations.OfType<JObject>())
+                {
+                    string relationType = relation.Value<string>("rel");
+                    if (!string.Equals(relationType, WorkItemImplementationBase.ParentRelationship, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(relationType, WorkItemImplementationBase.ChildRelationship, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (TryGetRelatedWorkItemId(relation.Value<string>("url"), out var relatedId))
+                    {
+                        data.Relations.Add(new RestWorkItemRelation
+                        {
+                            LinkTypeEndImmutableName = relationType,
+                            TargetId = relatedId
+                        });
+                    }
+                }
+            }
+
+            return data;
+        }
+
+        private Uri BuildWorkItemUri(int workItemId)
+        {
+            return new Uri(
+                this.projectCollectionUri,
+                $"_apis/wit/workitems/{workItemId}?$expand=relations&api-version={WorkItemApiVersion}");
+        }
+
+        private Uri ParseWorkItemUri(string url, int workItemId)
+        {
+            if (Uri.TryCreate(url, UriKind.Absolute, out var absoluteUri))
+            {
+                return absoluteUri;
+            }
+
+            return new Uri(this.projectCollectionUri, $"_apis/wit/workitems/{workItemId}");
+        }
+
+        private static bool TryGetRelatedWorkItemId(string relationUrl, out int workItemId)
+        {
+            workItemId = 0;
+            if (string.IsNullOrWhiteSpace(relationUrl))
+            {
+                return false;
+            }
+
+            if (Uri.TryCreate(relationUrl, UriKind.RelativeOrAbsolute, out var relationUri) && relationUri.IsAbsoluteUri)
+            {
+                return int.TryParse(relationUri.Segments.Last().Trim('/'), out workItemId);
+            }
+
+            string lastSegment = relationUrl.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+            return int.TryParse(lastSegment, out workItemId);
+        }
+
+        private static object ParseFieldValue(JToken token)
+        {
+            switch (token?.Type)
+            {
+                case null:
+                case JTokenType.Null:
+                case JTokenType.Undefined:
+                    return null;
+
+                case JTokenType.Integer:
+                {
+                    long integer = token.Value<long>();
+                    if (integer >= int.MinValue && integer <= int.MaxValue)
+                    {
+                        return (int)integer;
+                    }
+
+                    return integer;
+                }
+
+                case JTokenType.Float:
+                    return token.Value<double>();
+
+                case JTokenType.Boolean:
+                    return token.Value<bool>();
+
+                case JTokenType.Date:
+                    return token.Value<DateTime>();
+
+                case JTokenType.Object:
+                {
+                    var obj = (JObject)token;
+                    string uniqueName = obj.Value<string>("uniqueName");
+                    if (!string.IsNullOrWhiteSpace(uniqueName))
+                    {
+                        return uniqueName;
+                    }
+
+                    string displayName = obj.Value<string>("displayName");
+                    if (!string.IsNullOrWhiteSpace(displayName))
+                    {
+                        return displayName;
+                    }
+
+                    return obj.ToString(Newtonsoft.Json.Formatting.None);
+                }
+
+                default:
+                    return token.Value<string>();
+            }
+        }
+
+        private static string EscapeJsonPointer(string value)
+        {
+            return (value ?? string.Empty)
+                .Replace("~", "~0")
+                .Replace("/", "~1");
+        }
+
+        private static Uri EnsureTrailingSlash(Uri uri)
+        {
+            if (uri == null)
+            {
+                throw new ArgumentNullException(nameof(uri));
+            }
+
+            string absoluteUri = uri.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
+                ? uri.AbsoluteUri
+                : uri.AbsoluteUri + "/";
+            return new Uri(absoluteUri, UriKind.Absolute);
+        }
+
+        private static HttpClient CreateHttpClient(ConnectionInfo connectionInfo)
+        {
+            var handler = connectionInfo.Token?.CreateHttpClientHandler()
+                ?? new HttpClientHandler
+                {
+                    PreAuthenticate = true,
+                    UseDefaultCredentials = true
+                };
+
+            var client = new HttpClient(handler, disposeHandler: true);
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            connectionInfo.Token?.Apply(client);
+            return client;
         }
     }
 }

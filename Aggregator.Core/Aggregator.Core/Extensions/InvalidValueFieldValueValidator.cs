@@ -40,7 +40,7 @@ namespace Aggregator.Core.Extensions
                 if (!valid)
                 {
                     this.Logger.FieldValidationFailedValueNotAllowed(
-                        field.WorkItem.Id,
+                        0,
                         field.ReferenceName,
                         value);
 

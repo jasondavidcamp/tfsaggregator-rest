@@ -1,225 +1,137 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 
 using Aggregator.Core.Context;
 using Aggregator.Core.Interfaces;
-using Aggregator.Core.Monitoring;
 using Aggregator.Core.Navigation;
-
-using Microsoft.TeamFoundation.WorkItemTracking.Client;
 
 namespace Aggregator.Core.Facade
 {
     public class WorkItemWrapper : WorkItemImplementationBase, IWorkItem
     {
-        private readonly WorkItem workItem;
+        private readonly WorkItemRepository repository;
 
         private readonly IRuntimeContext context;
 
-        public WorkItemWrapper(WorkItem workItem, IRuntimeContext context)
+        private IDictionary<string, WorkItemFieldState> fields = new Dictionary<string, WorkItemFieldState>(StringComparer.OrdinalIgnoreCase);
+
+        private IList<RestWorkItemRelation> relations = new List<RestWorkItemRelation>();
+
+        private readonly HashSet<string> dirtyFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        private int id;
+
+        private Uri uri;
+
+        private DateTime revisedDate;
+
+        private int revision;
+
+        private string typeName;
+
+        internal WorkItemWrapper(RestWorkItemData workItem, IRuntimeContext context, WorkItemRepository repository)
             : base(context)
         {
-            this.workItem = workItem;
             this.context = context;
+            this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
+            this.RefreshFromData(workItem ?? throw new ArgumentNullException(nameof(workItem)));
         }
 
-        public WorkItemType Type
-        {
-            get
-            {
-                return this.workItem.Type;
-            }
-        }
+        public IWorkItemType Type => new RestWorkItemType(this.TypeName);
 
         public bool ShouldLimit(RateLimiter limiter)
         {
-            return limiter?.ShouldLimit(this.workItem) ?? false;
+            return limiter?.ShouldLimit(this) ?? false;
         }
 
-        public string TypeName
-        {
-            get
-            {
-                return this.workItem.Type.Name;
-            }
-        }
+        public string TypeName => this.typeName;
 
         public string History
         {
             get
             {
-                return this.workItem.History;
+                return this.GetOrCreateField("System.History").CurrentValue as string;
             }
 
             set
             {
-                this.workItem.History = value;
+                this.SetFieldValue("System.History", value);
             }
         }
 
-        public int Id
-        {
-            get
-            {
-                return this.workItem.Id;
-            }
-        }
+        public int Id => this.id;
 
         public object this[string name]
         {
             get
             {
-                // Ensure that this uses the FieldCollection and not directly accesses the
-                // <code>workItem[name]</code> indexer, that would ignore the double fix.
-                return this.Fields[name].Value;
+                return this.GetOrCreateField(name).CurrentValue;
             }
 
             set
             {
-                this.Fields[name].Value = value;
+                this.SetFieldValue(name, value);
             }
         }
 
-        public IFieldCollection Fields
-        {
-            get
-            {
-                return new FieldCollectionWrapper(this.workItem.Fields, this.context);
-            }
-        }
+        public IFieldCollection Fields => new FieldCollectionWrapper(this, this.context);
 
-        public Uri Uri
-        {
-            get
-            {
-                return this.workItem.Uri;
-            }
-        }
+        public Uri Uri => this.uri;
 
         public bool IsValid()
         {
-            return this.workItem.IsValid();
+            return true;
         }
 
         public ArrayList Validate()
         {
-            return this.workItem.Validate();
+            return new ArrayList();
         }
 
         public void PartialOpen()
         {
-            this.workItem.PartialOpen();
+            // Work item data is fully loaded through REST.
         }
 
         public void Save()
         {
-            this.workItem.Save();
+            this.repository.SaveWorkItem(this);
         }
 
         public void RevertChanges()
         {
-            this.workItem.Reset();
+            foreach (var fieldName in this.dirtyFields.ToArray())
+            {
+                var field = this.fields[fieldName];
+                field.CurrentValue = field.OriginalValue;
+                field.Status = Microsoft.TeamFoundation.WorkItemTracking.Client.FieldStatus.Valid;
+            }
+
+            this.dirtyFields.Clear();
         }
 
         public void TryOpen()
         {
-            try
-            {
-                this.workItem.Open();
-            }
-            catch (Exception e)
-            {
-                this.Logger.WorkItemWrapperTryOpenException(this, e);
-            }
+            // Work item data is fully loaded through REST.
         }
 
-        public bool IsDirty
-        {
-            get
-            {
-                return this.workItem.IsDirty;
-            }
-        }
+        public bool IsDirty => this.dirtyFields.Count > 0;
 
-        public override IWorkItemLinkCollection WorkItemLinksImpl
-        {
-            get
-            {
-                return new WorkItemLinkCollectionWrapper(this.workItem.WorkItemLinks, this.context);
-            }
-        }
+        public override IWorkItemLinkCollection WorkItemLinksImpl => new WorkItemLinkCollectionWrapper(this.relations, this.context);
 
-        public IWorkItemLinkExposedCollection WorkItemLinks
-        {
-            get
-            {
-                return new WorkItemLinkExposedCollectionWrapper(this.workItem.WorkItemLinks, this.context);
-            }
-        }
+        public IWorkItemLinkExposedCollection WorkItemLinks => new WorkItemLinkExposedCollectionWrapper(this.relations, this.context);
 
-        IWorkItemType IWorkItem.Type
-        {
-            get
-            {
-                return new WorkItemTypeWrapper(this.Type);
-            }
-        }
+        public DateTime RevisedDate => this.revisedDate;
 
-        public DateTime RevisedDate
-        {
-            get
-            {
-                return this.workItem.RevisedDate;
-            }
-        }
+        public int Revision => this.revision;
 
-        public int Revision
-        {
-            get
-            {
-                return this.workItem.Revision;
-            }
-        }
+        public IRevision LastRevision => new RevisionWrapper(this.revision, this.Fields, this.WorkItemLinks);
 
-        public IRevision LastRevision
-        {
-            get
-            {
-                return new RevisionWrapper(this.workItem.Revisions[this.workItem.Revisions.Count - 1], this.context);
-            }
-        }
+        public IRevision PreviousRevision => new RevisionWrapper(Math.Max(this.revision - 1, 1), this.Fields, this.WorkItemLinks);
 
-        public IRevision PreviousRevision
-        {
-            get
-            {
-                int targetRevision = this.workItem.Revision - 1;
-
-                if (targetRevision <= 1)
-                {
-                    targetRevision = 1;
-                }
-
-                return new RevisionWrapper(this.workItem.Revisions[targetRevision - 1], this.context);
-            }
-        }
-
-        public IRevision NextRevision
-        {
-            get
-            {
-                int targetRevision = this.workItem.Revision + 1;
-
-                if (targetRevision >= this.workItem.Revisions.Count + 1)
-                {
-                    targetRevision = this.workItem.Revisions.Count - 1;
-                }
-
-                return new RevisionWrapper(this.workItem.Revisions[targetRevision], this.context);
-            }
-        }
+        public IRevision NextRevision => new RevisionWrapper(this.revision, this.Fields, this.WorkItemLinks);
 
         public IEnumerable<IWorkItemExposed> GetRelatives(FluentQuery query)
         {
@@ -229,53 +141,12 @@ namespace Aggregator.Core.Facade
 
         public void TransitionToState(string state, string comment)
         {
-            StateWorkFlow.TransitionToState(this, state, comment, this.Logger);
+            throw new NotSupportedException("Workflow transitions are not supported by the REST-backed repository.");
         }
 
         public void AddWorkItemLink(IWorkItemExposed destination, string linkTypeName)
         {
-            IEnumerable<WorkItemLinkType> availableLinkTypes = this.workItem.Store.WorkItemLinkTypes;
-            this.AddWorkItemLink(destination, linkTypeName, availableLinkTypes);
-        }
-
-        internal void AddWorkItemLink(IWorkItemExposed destination, string linkTypeName, IEnumerable<WorkItemLinkType> availableLinkTypes)
-        {
-            WorkItemLinkType workItemLinkType = availableLinkTypes
-                .FirstOrDefault(
-                    t => new string[] { t.ForwardEnd.ImmutableName, t.ForwardEnd.Name, t.ReverseEnd.ImmutableName, t.ReverseEnd.Name }
-                        .Contains(linkTypeName, StringComparer.OrdinalIgnoreCase));
-
-            if (workItemLinkType == null)
-            {
-                throw new ArgumentOutOfRangeException(nameof(linkTypeName));
-            }
-
-            WorkItemLinkTypeEnd destLinkType;
-#pragma warning disable S3240
-            if (
-                new string[] { workItemLinkType.ForwardEnd.ImmutableName, workItemLinkType.ForwardEnd.Name }
-                    .Contains(linkTypeName, StringComparer.OrdinalIgnoreCase))
-            {
-                destLinkType = workItemLinkType.ForwardEnd;
-            }
-            else
-            {
-                destLinkType = workItemLinkType.ReverseEnd;
-            }
-#pragma warning restore S3240
-
-            var relationship = new WorkItemLink(destLinkType, this.Id, destination.Id);
-
-            // check it does not exist already
-            if (!this.workItem.WorkItemLinks.Contains(relationship))
-            {
-                this.Logger.AddingWorkItemLink(this.Id, destLinkType, destination.Id);
-                this.workItem.WorkItemLinks.Add(relationship);
-            }
-            else
-            {
-                this.Logger.WorkItemLinkAlreadyExists(this.Id, destLinkType, destination.Id);
-            }
+            throw new NotSupportedException("Work item link updates are not supported by the REST-backed repository.");
         }
 
         public void AddHyperlink(string destination)
@@ -285,38 +156,107 @@ namespace Aggregator.Core.Facade
 
         public void AddHyperlink(string destination, string comment)
         {
-            var link = new Hyperlink(destination);
-            link.Comment = comment ?? string.Empty;
-            if (!this.workItem.Links.Contains(link))
-            {
-                this.Logger.AddingHyperlink(this.Id, destination, comment);
-                this.workItem.Links.Add(link);
-            }
-            else
-            {
-                this.Logger.HyperlinkAlreadyExists(this.Id, destination, comment);
-            }
+            throw new NotSupportedException("Hyperlinks are not supported by the REST-backed repository.");
         }
 
         public void RemoveWorkItemLink(IWorkItemLinkExposed link)
         {
-            bool deleted = false;
-            foreach (WorkItemLink item in this.workItem.WorkItemLinks)
+            throw new NotSupportedException("Work item link updates are not supported by the REST-backed repository.");
+        }
+
+        internal IEnumerable<WorkItemFieldState> GetFields()
+        {
+            return this.fields.Values;
+        }
+
+        internal WorkItemFieldState GetOrCreateField(string referenceName)
+        {
+            if (string.IsNullOrWhiteSpace(referenceName))
             {
-                if (item.SourceId == this.Id
-                    && item.TargetId == link.Target.Id
-                    && item.LinkTypeEnd.ImmutableName == link.LinkTypeEndImmutableName)
+                throw new ArgumentNullException(nameof(referenceName));
+            }
+
+            if (!this.fields.TryGetValue(referenceName, out var field))
+            {
+                field = new WorkItemFieldState(this.Id, referenceName, null);
+                this.fields.Add(referenceName, field);
+            }
+
+            return field;
+        }
+
+        internal void SetFieldValue(string referenceName, object value)
+        {
+            var field = this.GetOrCreateField(referenceName);
+            if (ValuesEqual(field.CurrentValue, value))
+            {
+                return;
+            }
+
+            field.CurrentValue = value;
+            field.Status = Microsoft.TeamFoundation.WorkItemTracking.Client.FieldStatus.Valid;
+
+            if (ValuesEqual(field.OriginalValue, value))
+            {
+                this.dirtyFields.Remove(referenceName);
+            }
+            else
+            {
+                this.dirtyFields.Add(referenceName);
+            }
+        }
+
+        internal IReadOnlyDictionary<string, object> GetDirtyFieldValues()
+        {
+            return this.dirtyFields.ToDictionary(
+                fieldName => fieldName,
+                fieldName => this.fields[fieldName].CurrentValue,
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        internal void RefreshFromData(RestWorkItemData workItem)
+        {
+            this.id = workItem.Id;
+            this.typeName = workItem.TypeName ?? string.Empty;
+            this.uri = workItem.Uri;
+            this.revision = workItem.Revision;
+            this.revisedDate = workItem.RevisedDate;
+
+            var refreshedFields = new Dictionary<string, WorkItemFieldState>(StringComparer.OrdinalIgnoreCase);
+            foreach (var field in workItem.Fields)
+            {
+                var state = new WorkItemFieldState(this.id, field.Key, field.Value);
+                if (field.Value != null)
                 {
-                    this.Logger.RemovingWorkItemLink(item);
-                    this.workItem.WorkItemLinks.Remove(item);
-                    deleted = true;
-                    break;
+                    state.ExplicitDataType = field.Value.GetType();
                 }
+
+                refreshedFields[field.Key] = state;
             }
-            if (!deleted)
+
+            this.fields = refreshedFields;
+            this.relations = new List<RestWorkItemRelation>(workItem.Relations ?? Array.Empty<RestWorkItemRelation>());
+            this.dirtyFields.Clear();
+        }
+
+        private static bool ValuesEqual(object left, object right)
+        {
+            if (ReferenceEquals(left, right))
             {
-                this.Logger.WorkItemLinkNotFound(link);
+                return true;
             }
+
+            if (left == null || right == null)
+            {
+                return false;
+            }
+
+            if (left is DateTime leftDateTime && right is DateTime rightDateTime)
+            {
+                return leftDateTime.ToUniversalTime() == rightDateTime.ToUniversalTime();
+            }
+
+            return object.Equals(left, right);
         }
     }
 }

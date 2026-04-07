@@ -16,7 +16,7 @@ namespace Aggregator.Core.Extensions
             if (value != null && value.GetType() != field.FieldDefinition.SystemType)
             {
                 this.Logger.FieldValidationFailedInvalidDataType(
-                    field.WorkItem.Id,
+                    0,
                     field.ReferenceName,
                     field.FieldDefinition.SystemType,
                     value.GetType(),

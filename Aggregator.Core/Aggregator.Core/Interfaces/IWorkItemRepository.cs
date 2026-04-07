@@ -4,7 +4,7 @@ using System.Collections.ObjectModel;
 namespace Aggregator.Core.Interfaces
 {
     /// <summary>
-    /// Decouples Core from TFS Client API <see cref="Microsoft.TeamFoundation.WorkItemTracking.Client.WorkItemStore"/>
+    /// Decouples Core from the underlying work item data access implementation.
     /// </summary>
     public interface IWorkItemRepository : IWorkItemRepositoryExposed
     {

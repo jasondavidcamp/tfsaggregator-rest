@@ -1,9 +1,7 @@
-﻿using System.Linq;
+using System.Linq;
 using System.Text;
 
 using Aggregator.Core.Interfaces;
-
-using Microsoft.TeamFoundation.WorkItemTracking.Client;
 
 namespace Aggregator.Core.Extensions
 {
@@ -18,9 +16,16 @@ namespace Aggregator.Core.Extensions
             }
             else
             {
-                foreach (Field s in wi.Validate().Cast<Field>())
+                foreach (object field in wi.Validate().Cast<object>())
                 {
-                    sb.AppendLine(s.ReferenceName);
+                    if (field is IField wrappedField)
+                    {
+                        sb.AppendLine(wrappedField.ReferenceName);
+                    }
+                    else if (field != null)
+                    {
+                        sb.AppendLine(field.ToString());
+                    }
                 }
             }
 

@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Globalization;
 
 using Aggregator.Core.Interfaces;
 using Aggregator.Core.Navigation;
@@ -18,8 +19,35 @@ namespace Aggregator.Core.Extensions
         {
             try
             {
-                TType convertedValue = (TType)self[fieldName];
-                return convertedValue;
+                object rawValue = self[fieldName];
+                if (rawValue == null)
+                {
+                    return defaultValue;
+                }
+
+                if (rawValue is TType directMatch)
+                {
+                    return directMatch;
+                }
+
+                Type targetType = Nullable.GetUnderlyingType(typeof(TType)) ?? typeof(TType);
+                if (targetType.IsEnum)
+                {
+                    if (rawValue is string enumString)
+                    {
+                        return (TType)Enum.Parse(targetType, enumString, true);
+                    }
+
+                    return (TType)Enum.ToObject(targetType, rawValue);
+                }
+
+                if (targetType == typeof(Guid))
+                {
+                    return (TType)(object)Guid.Parse(Convert.ToString(rawValue, CultureInfo.InvariantCulture));
+                }
+
+                object convertedValue = Convert.ChangeType(rawValue, targetType, CultureInfo.InvariantCulture);
+                return (TType)convertedValue;
             }
             catch (Exception)
             {

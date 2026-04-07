@@ -30,7 +30,12 @@ namespace Aggregator.Core.Facade
         {
             get
             {
-                return this.eventArgs.CoreFields.IntegerFields[0].NewValue;
+                if (int.TryParse(this.eventArgs.WorkItemId, out int workItemId))
+                {
+                    return workItemId;
+                }
+
+                throw new InvalidOperationException($"Unexpected work item id '{this.eventArgs.WorkItemId}'.");
             }
         }
 
