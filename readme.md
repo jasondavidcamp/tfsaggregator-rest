@@ -112,4 +112,4 @@ Contributions are welcome, particularly for expanding REST-based feature parity 
 
 ## License
 
-Licensed under the original MIT License.
+Licensed under the Apache 2.0 License. See the LICENSE file for details.
