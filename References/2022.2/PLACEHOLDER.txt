@@ -1,5 +1,6 @@
 Copy here the proper version of these TFS assemblies:
 
+Microsoft.Azure.Boards.CssNodes.dll
 Microsoft.TeamFoundation.Framework.Server.dll
 Microsoft.TeamFoundation.Server.Core.dll
 Microsoft.TeamFoundation.Server.Types.dll
